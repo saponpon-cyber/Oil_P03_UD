@@ -469,9 +469,10 @@ textarea{resize:none;min-height:70px;line-height:1.5}
         <div class="fg" style="margin-top:13px">
           <label>📸 รูปมิเตอร์ <span class="r">*</span></label>
           <div class="photo-area">
-            <input type="file" id="reqPhotoInput" multiple accept="image/*" capture="environment" onchange="handleReqPhotos(this)">
-            <div class="uico">📷</div>
-            <p><strong>แตะถ่ายรูปมิเตอร์</strong></p>
+            <input type="file" id="reqPhotoInput" multiple accept="image/*" onchange="handleReqPhotos(this)">
+            <div class="uico">🖼️</div>
+            <p><strong>แตะเพื่อเลือกรูปมิเตอร์</strong></p>
+            <p style="font-size:12px;color:var(--gray-400);margin-top:3px">เลือกได้สูงสุด 4 รูป</p>
           </div>
           <div class="photo-previews" id="reqPreviews"></div>
         </div>
@@ -669,7 +670,123 @@ textarea{resize:none;min-height:70px;line-height:1.5}
       <p>ใน Sheets → <strong>Extensions → Apps Script</strong> → วางโค้ด:</p>
       <div class="code-block" id="gasCodeBlock">
         <button class="copy-btn" onclick="copyGasCode()">คัดลอก</button>
-<span class="cc">// ===== Google Apps Script (อัพเดทใหม่ — รองรับ Sync) =====</span>
+<span class="cc">// ===== Google Apps Script (รองรับ รูปภาพ → Google Drive) =====</span>
+<span class="ck">const</span> SHEET_ID   = <span class="cs">"YOUR_SPREADSHEET_ID"</span>;
+<span class="ck">const</span> PM_EMAIL   = <span class="cs">"pm@yourcompany.com"</span>;
+<span class="ck">const</span> DRIVE_FOLDER = <span class="cs">"ระบบน้ำมัน_รูปภาพ"</span>; <span class="cc">// ชื่อ folder ใน Drive</span>
+<span class="ck">const</span> SHEET_REQ  = <span class="cs">"ใบขอเบิก"</span>;
+<span class="ck">const</span> SHEET_REC  = <span class="cs">"บันทึกน้ำมัน"</span>;
+<span class="ck">const</span> SHEET_SYNC = <span class="cs">"AppSync"</span>;
+
+<span class="ck">function</span> doGet(e) {
+  <span class="ck">if</span> (e.parameter.action === <span class="cs">"load"</span>) <span class="ck">return</span> loadData();
+  <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>,msg:<span class="cs">"Fuel API Ready"</span>});
+}
+
+<span class="ck">function</span> doPost(e) {
+  <span class="ck">try</span> {
+    <span class="ck">const</span> d = JSON.parse(e.postData.contents);
+    <span class="ck">if</span>(d.action===<span class="cs">"request"</span>) <span class="ck">return</span> saveRequest(d);
+    <span class="ck">if</span>(d.action===<span class="cs">"record"</span>)  <span class="ck">return</span> saveRecord(d);
+    <span class="ck">if</span>(d.action===<span class="cs">"sync"</span>)    <span class="ck">return</span> syncData(d);
+    <span class="ck">return</span> respond({status:<span class="cs">"error"</span>,msg:<span class="cs">"unknown"</span>});
+  } <span class="ck">catch</span>(err){ <span class="ck">return</span> respond({status:<span class="cs">"error"</span>,msg:err.toString()}); }
+}
+
+<span class="cc">// อัพรูปขึ้น Google Drive → return links</span>
+<span class="ck">function</span> uploadPhotos(photos, subFolder) {
+  <span class="ck">if</span> (!photos || photos.length === 0) <span class="ck">return</span> [];
+  <span class="ck">const</span> root   = getDriveFolder(DRIVE_FOLDER);
+  <span class="ck">const</span> folder = getDriveFolder(subFolder, root);
+  <span class="ck">return</span> photos.map((p, i) => {
+    <span class="ck">const</span> blob = Utilities.newBlob(
+      Utilities.base64Decode(p.data),
+      p.mimeType,
+      p.name || <span class="cs">`photo_${i+1}.jpg`</span>
+    );
+    <span class="ck">const</span> file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    <span class="ck">return</span> file.getUrl();
+  });
+}
+
+<span class="ck">function</span> getDriveFolder(name, parent) {
+  <span class="ck">const</span> src = parent || DriveApp;
+  <span class="ck">const</span> it  = src.getFoldersByName(name);
+  <span class="ck">return</span> it.hasNext() ? it.next() : src.createFolder(name);
+}
+
+<span class="ck">function</span> saveRequest(d) {
+  <span class="cc">// อัพรูปขึ้น Drive</span>
+  <span class="ck">const</span> photoLinks = uploadPhotos(d.photos, <span class="cs">`${d.plateNo}_${d.fuelDate}`</span>);
+  <span class="ck">const</span> photoCell  = photoLinks.join(<span class="cs">'\n'</span>);
+
+  <span class="ck">const</span> sh = getOrCreate(SHEET_REQ,[
+    <span class="cs">"ID"</span>,<span class="cs">"วันที่ขอ"</span>,<span class="cs">"วันที่เติม"</span>,<span class="cs">"ทะเบียน"</span>,<span class="cs">"ประเภท"</span>,
+    <span class="cs">"ลิตร"</span>,<span class="cs">"หน่วยงาน"</span>,<span class="cs">"ผู้ขับ"</span>,<span class="cs">"มิเตอร์เริ่ม"</span>,
+    <span class="cs">"มิเตอร์สิ้นสุด"</span>,<span class="cs">"ระยะ/ชม."</span>,<span class="cs">"อัตราสิ้นเปลือง"</span>,<span class="cs">"สถานะเรท"</span>,<span class="cs">"เหตุผล"</span>,<span class="cs">"รูปภาพ"</span>
+  ]);
+  sh.appendRow([d.id, <span class="ck">new</span> Date(), d.fuelDate, d.plateNo, d.machineType,
+    d.liters, d.project, d.driverName, d.meterStart, d.meterEnd,
+    d.distOrHr, d.consumeRate, d.rateStatus, d.reason, photoCell]);
+
+  MailApp.sendEmail(PM_EMAIL,
+    <span class="cs">`📋 ขอเบิก: ${d.machineType} ${d.plateNo} — ${d.liters} ล. (${d.fuelDate})`</span>,
+    <span class="cs">`${d.machineType} ${d.plateNo}\n${d.liters} ลิตร\nวันที่: ${d.fuelDate}\nผู้ขับ: ${d.driverName}\nมิเตอร์: ${d.meterStart} → ${d.meterEnd}\nระยะ: ${d.distOrHr}\nอัตรา: ${d.consumeRate}\n\nรูปภาพ:\n${photoLinks.join('\n')}`</span>);
+
+  <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>, photoLinks});
+}
+
+<span class="ck">function</span> saveRecord(d) {
+  <span class="ck">const</span> sh = getOrCreate(SHEET_REC,[
+    <span class="cs">"Timestamp"</span>,<span class="cs">"RequestID"</span>,<span class="cs">"วันที่เติม"</span>,<span class="cs">"ทะเบียน"</span>,<span class="cs">"ประเภท"</span>,
+    <span class="cs">"ลิตรจริง"</span>,<span class="cs">"ราคา/ลิตร"</span>,<span class="cs">"รวมบาท"</span>,<span class="cs">"มิเตอร์เริ่ม"</span>,<span class="cs">"มิเตอร์สิ้นสุด"</span>,
+    <span class="cs">"ระยะ/ชม."</span>,<span class="cs">"อัตราสิ้นเปลือง"</span>,<span class="cs">"สถานะเรท"</span>,<span class="cs">"ผู้ขับ"</span>,<span class="cs">"ผู้บันทึก"</span>,<span class="cs">"หน่วยงาน"</span>
+  ]);
+  sh.appendRow([<span class="ck">new</span> Date(), d.requestId, d.fuelDate, d.plateNo, d.machineType,
+    d.actualLiters, d.pricePerLiter, d.totalCost, d.meterStart, d.meterEnd,
+    d.distOrHr, d.consumeRate, d.rateStatus,
+    d.driverName, d.recorderName, d.project]);
+  <span class="ck">if</span>(d.rateStatus===<span class="cs">"เกินเรท"</span>)
+    MailApp.sendEmail(PM_EMAIL,
+      <span class="cs">`⚠️ เกินเรท: ${d.machineType} ${d.plateNo} — ${d.consumeRate}`</span>,
+      <span class="cs">`ทะเบียน: ${d.plateNo}\nอัตรา: ${d.consumeRate}\nวันที่: ${d.fuelDate}`</span>);
+  <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>});
+}
+
+<span class="ck">function</span> loadData() {
+  <span class="ck">const</span> ss = SpreadsheetApp.openById(SHEET_ID);
+  <span class="ck">const</span> sh = ss.getSheetByName(SHEET_SYNC);
+  <span class="ck">if</span>(!sh) <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>,records:[],pending:[],stock:[]});
+  <span class="ck">const</span> data = sh.getRange(1,1).getValue();
+  <span class="ck">if</span>(!data) <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>,records:[],pending:[],stock:[]});
+  <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>, ...JSON.parse(data)});
+}
+
+<span class="ck">function</span> syncData(d) {
+  <span class="ck">const</span> ss = SpreadsheetApp.openById(SHEET_ID);
+  <span class="ck">let</span> sh = ss.getSheetByName(SHEET_SYNC);
+  <span class="ck">if</span>(!sh){ sh = ss.insertSheet(SHEET_SYNC); sh.hideSheet(); }
+  sh.getRange(1,1).setValue(JSON.stringify({
+    records:d.records||[], pending:d.pending||[], stock:d.stock||[]
+  }));
+  <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>});
+}
+
+<span class="ck">function</span> getOrCreate(name, headers) {
+  <span class="ck">const</span> ss = SpreadsheetApp.openById(SHEET_ID);
+  <span class="ck">let</span> sh = ss.getSheetByName(name);
+  <span class="ck">if</span>(!sh){
+    sh = ss.insertSheet(name);
+    sh.appendRow(headers);
+    sh.getRange(1,1,1,headers.length).setBackground(<span class="cs">"#0f2744"</span>).setFontColor(<span class="cs">"#fff"</span>).setFontWeight(<span class="cs">"bold"</span>);
+    sh.setFrozenRows(1);
+  }
+  <span class="ck">return</span> sh;
+}
+<span class="ck">function</span> respond(obj){
+  <span class="ck">return</span> ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}</div>
 <span class="ck">const</span> SHEET_ID   = <span class="cs">"YOUR_SPREADSHEET_ID"</span>;
 <span class="ck">const</span> PM_EMAIL   = <span class="cs">"pm@yourcompany.com"</span>;
 <span class="ck">const</span> SHEET_REQ  = <span class="cs">"ใบขอเบิก"</span>;
@@ -1058,7 +1175,9 @@ function addToCart() {
     machineType:curMachine.type, machineUnit:curMachine.unit, machineMax:curMachine.max,
     liters:parseFloat(liters), project:document.getElementById('reqProject').value,
     driverName:driver, reason, meterStart, meterEnd, distOrHr, consumeRate, rateStatus,
-    photoUrls:reqPhotos.map(f=>URL.createObjectURL(f)), requestedAt:new Date().toISOString() });
+    photoUrls:reqPhotos.map(f=>URL.createObjectURL(f)),
+    photoFiles:[...reqPhotos],   // ← เก็บ File objects สำหรับ upload
+    requestedAt:new Date().toISOString() });
 
   renderCart(); clearItemForm();
   toast(`✅ เพิ่ม ${curMachine.type} ${plateNo} แล้ว`, 'success');
@@ -1208,19 +1327,63 @@ async function saveToRecord() {
   btn.disabled=true; spin.style.display='block';
 
   for (const item of cart) {
-    const payload={...item, action:'request', photoUrls:undefined, photoFiles:undefined};
-    if (GAS_URL) try { await fetch(GAS_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); } catch(e){}
-    pending.push({...item, status:'pending'});
+    // แปลงรูปเป็น base64 เพื่อส่งขึ้น Drive
+    let photoBase64 = [];
+    if (item.photoFiles && item.photoFiles.length > 0) {
+      showSyncBanner(`กำลังอัพโหลดรูป ${item.plateNo}...`);
+      photoBase64 = await Promise.all(
+        item.photoFiles.map(f => fileToBase64(f))
+      );
+    }
+
+    const payload = {
+      ...item,
+      action: 'request',
+      photoUrls: undefined,
+      photoFiles: undefined,
+      photos: photoBase64   // ← base64 array
+    };
+
+    if (GAS_URL) {
+      try {
+        const res = await fetch(GAS_URL, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const d = await res.json();
+        // ถ้าได้ Drive links กลับมา เก็บไว้ใน pending
+        if (d.photoLinks) item.drivePhotoLinks = d.photoLinks;
+      } catch(e) {}
+    }
+
+    pending.push({...item, status:'pending', photos: undefined, photoFiles: undefined});
   }
+
+  hideSyncBanner();
   savePending();
   btn.disabled=false; spin.style.display='none';
   cart=[];
   clearItemForm(); renderCart();
   document.getElementById('reqPreviewSection').style.display='none';
   document.getElementById('reqFormSection').style.display='block';
-  toast(`✅ บันทึก ${pending.filter(p=>p.status==='pending').length} รายการรอการอนุมัติแล้ว`, 'success');
-  pushCloud(); // ← sync ขึ้น cloud
+  toast(`✅ บันทึก ${pending.filter(p=>p.status==='pending').length} รายการ + อัพรูปแล้ว`, 'success');
+  pushCloud();
   renderRecordList();
+}
+
+// แปลง File object → base64 string
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve({
+      data:     reader.result.split(',')[1],  // ตัด "data:image/jpeg;base64," ออก
+      mimeType: file.type,
+      name:     file.name
+    });
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 // ═══ RECORD LIST ═══
