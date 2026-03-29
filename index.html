@@ -341,6 +341,10 @@ textarea{resize:none;min-height:70px;line-height:1.5}
 .sum-rate.ok{background:var(--green-bg);color:var(--green-mid)}
 .sum-rate.warn{background:var(--red-bg);color:var(--red)}
 
+/* ── SYNC BANNER ── */
+.sync-banner{position:fixed;top:0;left:0;right:0;z-index:300;background:var(--navy-mid);color:#fff;font-size:13px;padding:9px 16px;display:flex;align-items:center;gap:10px;justify-content:center}
+.sync-spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+
 @media(max-width:360px){.mgrid{grid-template-columns:repeat(3,1fr)}.ir{grid-template-columns:1fr}}
 </style>
 </head>
@@ -354,6 +358,9 @@ textarea{resize:none;min-height:70px;line-height:1.5}
       <div class="h-title">ระบบบริหารน้ำมัน</div>
       <div class="h-sub">บริษัทก่อสร้างสะพาน</div>
     </div>
+    <button onclick="manualSync()" style="margin-left:auto;background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:8px;padding:7px 12px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:5px" title="โหลดข้อมูลใหม่">
+      🔄 Sync
+    </button>
   </div>
   <nav class="tab-nav">
     <button class="tab-btn active" onclick="switchTab('request')" id="tab-request"><span class="ti">📋</span>ขอเบิก</button>
@@ -662,23 +669,53 @@ textarea{resize:none;min-height:70px;line-height:1.5}
       <p>ใน Sheets → <strong>Extensions → Apps Script</strong> → วางโค้ด:</p>
       <div class="code-block" id="gasCodeBlock">
         <button class="copy-btn" onclick="copyGasCode()">คัดลอก</button>
-<span class="cc">// ===== Google Apps Script =====</span>
+<span class="cc">// ===== Google Apps Script (อัพเดทใหม่ — รองรับ Sync) =====</span>
 <span class="ck">const</span> SHEET_ID   = <span class="cs">"YOUR_SPREADSHEET_ID"</span>;
 <span class="ck">const</span> PM_EMAIL   = <span class="cs">"pm@yourcompany.com"</span>;
 <span class="ck">const</span> SHEET_REQ  = <span class="cs">"ใบขอเบิก"</span>;
 <span class="ck">const</span> SHEET_REC  = <span class="cs">"บันทึกน้ำมัน"</span>;
+<span class="ck">const</span> SHEET_SYNC = <span class="cs">"AppSync"</span>; <span class="cc">// เก็บ state ทั้งหมดสำหรับ sync</span>
 
 <span class="ck">function</span> doGet(e) {
+  <span class="ck">const</span> action = e.parameter.action;
+  <span class="ck">if</span> (action === <span class="cs">"load"</span>) <span class="ck">return</span> loadData();
   <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>,msg:<span class="cs">"Fuel API Ready"</span>});
 }
+
 <span class="ck">function</span> doPost(e) {
   <span class="ck">try</span> {
     <span class="ck">const</span> d = JSON.parse(e.postData.contents);
     <span class="ck">if</span>(d.action===<span class="cs">"request"</span>) <span class="ck">return</span> saveRequest(d);
     <span class="ck">if</span>(d.action===<span class="cs">"record"</span>)  <span class="ck">return</span> saveRecord(d);
+    <span class="ck">if</span>(d.action===<span class="cs">"sync"</span>)    <span class="ck">return</span> syncData(d);
     <span class="ck">return</span> respond({status:<span class="cs">"error"</span>,msg:<span class="cs">"unknown"</span>});
   } <span class="ck">catch</span>(err){ <span class="ck">return</span> respond({status:<span class="cs">"error"</span>,msg:err.toString()}); }
 }
+
+<span class="cc">// โหลดข้อมูลทั้งหมดกลับไปให้แอพ</span>
+<span class="ck">function</span> loadData() {
+  <span class="ck">const</span> ss = SpreadsheetApp.openById(SHEET_ID);
+  <span class="ck">const</span> sh = ss.getSheetByName(SHEET_SYNC);
+  <span class="ck">if</span> (!sh) <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>,records:[],pending:[],stock:[]});
+  <span class="ck">const</span> data = sh.getRange(1,1).getValue();
+  <span class="ck">if</span> (!data) <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>,records:[],pending:[],stock:[]});
+  <span class="ck">const</span> obj = JSON.parse(data);
+  <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>, ...obj});
+}
+
+<span class="cc">// บันทึก state ทั้งหมดจากแอพ</span>
+<span class="ck">function</span> syncData(d) {
+  <span class="ck">const</span> ss = SpreadsheetApp.openById(SHEET_ID);
+  <span class="ck">let</span> sh = ss.getSheetByName(SHEET_SYNC);
+  <span class="ck">if</span> (!sh) { sh = ss.insertSheet(SHEET_SYNC); sh.hideSheet(); }
+  sh.getRange(1,1).setValue(JSON.stringify({
+    records: d.records||[],
+    pending: d.pending||[],
+    stock:   d.stock||[]
+  }));
+  <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>});
+}
+
 <span class="ck">function</span> saveRequest(d) {
   <span class="ck">const</span> sh = getOrCreate(SHEET_REQ,[
     <span class="cs">"ID"</span>,<span class="cs">"วันที่ขอ"</span>,<span class="cs">"วันที่เติม"</span>,<span class="cs">"ทะเบียน"</span>,<span class="cs">"ประเภท"</span>,
@@ -693,23 +730,24 @@ textarea{resize:none;min-height:70px;line-height:1.5}
     <span class="cs">`${d.machineType} ${d.plateNo}\n${d.liters} ลิตร\nวันที่: ${d.fuelDate}\nผู้ขับ: ${d.driverName}\nมิเตอร์: ${d.meterStart} → ${d.meterEnd}\nระยะ: ${d.distOrHr}\nอัตรา: ${d.consumeRate}`</span>);
   <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>});
 }
+
 <span class="ck">function</span> saveRecord(d) {
   <span class="ck">const</span> sh = getOrCreate(SHEET_REC,[
     <span class="cs">"Timestamp"</span>,<span class="cs">"RequestID"</span>,<span class="cs">"วันที่เติม"</span>,<span class="cs">"ทะเบียน"</span>,<span class="cs">"ประเภท"</span>,
     <span class="cs">"ลิตรจริง"</span>,<span class="cs">"ราคา/ลิตร"</span>,<span class="cs">"รวมบาท"</span>,<span class="cs">"มิเตอร์เริ่ม"</span>,<span class="cs">"มิเตอร์สิ้นสุด"</span>,
-    <span class="cs">"ระยะ/ชม."</span>,<span class="cs">"อัตราสิ้นเปลือง"</span>,<span class="cs">"สถานะเรท"</span>,<span class="cs">"แหล่งน้ำมัน"</span>,
-    <span class="cs">"ผู้ขับ"</span>,<span class="cs">"ผู้บันทึก"</span>,<span class="cs">"หน่วยงาน"</span>,<span class="cs">"หมายเหตุ"</span>
+    <span class="cs">"ระยะ/ชม."</span>,<span class="cs">"อัตราสิ้นเปลือง"</span>,<span class="cs">"สถานะเรท"</span>,<span class="cs">"ผู้ขับ"</span>,<span class="cs">"ผู้บันทึก"</span>,<span class="cs">"หน่วยงาน"</span>
   ]);
   sh.appendRow([<span class="ck">new</span> Date(),d.requestId,d.fuelDate,d.plateNo,d.machineType,
     d.actualLiters,d.pricePerLiter,d.totalCost,d.meterStart,d.meterEnd,
-    d.distOrHr,d.consumeRate,d.rateStatus,d.fuelSource,
-    d.driverName,d.recorderName,d.project,d.remark]);
+    d.distOrHr,d.consumeRate,d.rateStatus,
+    d.driverName,d.recorderName,d.project]);
   <span class="ck">if</span>(d.rateStatus===<span class="cs">"เกินเรท"</span>)
     MailApp.sendEmail(PM_EMAIL,
       <span class="cs">`⚠️ เกินเรท: ${d.machineType} ${d.plateNo} — ${d.consumeRate}`</span>,
       <span class="cs">`ทะเบียน: ${d.plateNo}\nอัตรา: ${d.consumeRate}\nวันที่: ${d.fuelDate}`</span>);
   <span class="ck">return</span> respond({status:<span class="cs">"ok"</span>});
 }
+
 <span class="ck">function</span> getOrCreate(name,headers) {
   <span class="ck">const</span> ss=SpreadsheetApp.openById(SHEET_ID);
   <span class="ck">let</span> sh=ss.getSheetByName(name);
@@ -782,6 +820,10 @@ textarea{resize:none;min-height:70px;line-height:1.5}
   </div>
 </div>
 
+<div class="sync-banner" id="syncBanner" style="display:none">
+  <div class="sync-spin"></div>
+  <span id="syncMsg">กำลังซิงค์...</span>
+</div>
 <div class="toast-wrap"><div class="toast" id="toast"><span id="toastIcon">ℹ️</span><span id="toastMsg">—</span></div></div>
 
 <!-- STOCK-IN MODAL -->
@@ -860,11 +902,32 @@ let curFillItem = null;
 let dashYear, dashMonthIdx;
 let stockFilterMode = 'all';
 
-// ═══ INIT ═══
-document.addEventListener('DOMContentLoaded', () => {
+// ═══ INIT — โหลดจาก Cloud ถ้ามี GAS_URL ═══
+document.addEventListener('DOMContentLoaded', async () => {
   setTomorrow();
   loadGasUrl();
   renderCart();
+
+  if (GAS_URL) {
+    showSyncBanner('กำลังโหลดข้อมูลล่าสุดจาก Cloud...');
+    try {
+      const res = await fetch(GAS_URL + '?action=load');
+      const d   = await res.json();
+      if (d.status === 'ok') {
+        if (d.records  && d.records.length)  { records     = d.records;     saveRecords(); }
+        if (d.pending  && d.pending.length)  { pending     = d.pending;     savePending(); }
+        if (d.stock    && d.stock.length)    { stockLedger = d.stock;       saveStock();   }
+        hideSyncBanner();
+        toast('✅ โหลดข้อมูลจาก Cloud แล้ว', 'success');
+      } else {
+        hideSyncBanner();
+      }
+    } catch(e) {
+      hideSyncBanner();
+      // offline → ใช้ localStorage ที่มีอยู่
+    }
+  }
+
   renderRecordList();
   renderStock();
   renderDash();
@@ -1156,6 +1219,7 @@ async function saveToRecord() {
   document.getElementById('reqPreviewSection').style.display='none';
   document.getElementById('reqFormSection').style.display='block';
   toast(`✅ บันทึก ${pending.filter(p=>p.status==='pending').length} รายการรอการอนุมัติแล้ว`, 'success');
+  pushCloud(); // ← sync ขึ้น cloud
   renderRecordList();
 }
 
@@ -1285,6 +1349,7 @@ async function confirmFill() {
     ts: new Date().toISOString()
   });
   saveStock();
+  pushCloud(); // ← sync ขึ้น cloud
 
   btn.disabled = false; spin.style.display = 'none';
   closeModal('modalFill');
@@ -1412,6 +1477,7 @@ function deletePending(idx) {
   if (!confirm(`ลบรายการ "${item.machineType} ${item.plateNo}" ออก?`)) return;
   pending.splice(idx, 1);
   savePending();
+  pushCloud();
   renderRecordList();
   toast('🗑️ ลบรายการรอบันทึกแล้ว', '');
 }
@@ -1433,6 +1499,7 @@ function deleteRecord(idx) {
 
   records.splice(idx, 1);
   saveRecords();
+  pushCloud();
   renderDash();
   renderStock();
   toast('🗑️ ลบประวัติการบันทึกแล้ว', '');
@@ -1445,6 +1512,7 @@ function deleteStockEntry(idx) {
   if (!confirm(`ลบรายการคลัง "${label}"?`)) return;
   stockLedger.splice(idx, 1);
   saveStock();
+  pushCloud();
   renderStock();
   toast('🗑️ ลบรายการคลังแล้ว', '');
 }
@@ -1604,6 +1672,7 @@ function confirmStockIn() {
   saveStock();
   closeModal('modalStockIn');
   renderStock();
+  pushCloud();
   toast(`✅ รับน้ำมันเข้า ${liters.toFixed(0)} ล. — คงเหลือ ${newBal.toFixed(0)} ล.`, 'success');
 }
 
@@ -1635,8 +1704,37 @@ function clearItemForm() {
   document.getElementById('lastFuelBanner').style.display='none';
 }
 
+// ═══ SAVE + CLOUD SYNC ═══
 function saveRecords(){ localStorage.setItem('fuelRecords',JSON.stringify(records)); }
 function savePending(){ localStorage.setItem('fuelPending',JSON.stringify(pending)); }
+function saveStock()  { localStorage.setItem('stockLedger',JSON.stringify(stockLedger)); }
+
+// Push สถานะทั้งหมดขึ้น Cloud ในครั้งเดียว
+async function pushCloud() {
+  if (!GAS_URL) return;
+  try {
+    await fetch(GAS_URL, {
+      method: 'POST', mode: 'no-cors',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        action:  'sync',
+        records: records,
+        pending: pending,
+        stock:   stockLedger
+      })
+    });
+  } catch(e) { /* offline — ไม่เป็นไร localStorage ยังมีอยู่ */ }
+}
+
+function showSyncBanner(msg='กำลังซิงค์...') {
+  const b=document.getElementById('syncBanner');
+  document.getElementById('syncMsg').textContent=msg;
+  b.style.display='flex';
+}
+function hideSyncBanner() {
+  document.getElementById('syncBanner').style.display='none';
+}
+
 function openModal(id){ document.getElementById(id).classList.add('show'); document.body.style.overflow='hidden'; }
 function closeModal(id){ document.getElementById(id).classList.remove('show'); document.body.style.overflow=''; }
 document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)closeModal(m.id);}));
@@ -1647,6 +1745,23 @@ function loadGasUrl(){ const url=localStorage.getItem('gasUrl')||''; document.ge
 async function testConn(){ if(!GAS_URL){toast('⚠️ กรุณากรอก URL','warn');return;} setConn('','กำลังทดสอบ...'); try{ const res=await fetch(GAS_URL); const d=await res.json(); if(d.status==='ok'){setConn('on','✅ เชื่อมต่อสำเร็จ');toast('✅ เชื่อมต่อ Google Sheets สำเร็จ!','success');}else throw new Error(d.msg); }catch(e){setConn('err','เชื่อมต่อไม่ได้ — ตรวจสอบ URL');toast('❌ เชื่อมต่อไม่ได้','error');} }
 function setConn(state,msg){ document.getElementById('statusDot').className='sdot'+(state?' '+state:''); document.getElementById('statusText').textContent=msg; }
 function copyGasCode(){ const el=document.getElementById('gasCodeBlock'); navigator.clipboard.writeText(el.innerText.replace(/^คัดลอก\n/,'')).then(()=>toast('✅ คัดลอกโค้ดแล้ว','success')); }
+
+async function manualSync() {
+  if (!GAS_URL) { toast('⚠️ ยังไม่ได้ตั้งค่า URL ใน ⚙️ ตั้งค่า','warn'); return; }
+  showSyncBanner('กำลังโหลดข้อมูลจาก Cloud...');
+  try {
+    const res = await fetch(GAS_URL + '?action=load');
+    const d   = await res.json();
+    if (d.status === 'ok') {
+      if (d.records && d.records.length)  { records     = d.records;     saveRecords(); }
+      if (d.pending && d.pending.length)  { pending     = d.pending;     savePending(); }
+      if (d.stock   && d.stock.length)    { stockLedger = d.stock;       saveStock();   }
+      hideSyncBanner();
+      renderRecordList(); renderStock(); renderDash();
+      toast('✅ อัพเดทข้อมูลจาก Cloud แล้ว', 'success');
+    } else { hideSyncBanner(); toast('❌ โหลดไม่สำเร็จ', 'error'); }
+  } catch(e) { hideSyncBanner(); toast('❌ ไม่มีอินเทอร์เน็ต', 'error'); }
+}
 
 let toastTimer;
 function toast(msg,type=''){ const t=document.getElementById('toast'); const icons={success:'✅',error:'❌',warn:'⚠️'}; document.getElementById('toastMsg').textContent=msg; document.getElementById('toastIcon').textContent=icons[type]||'ℹ️'; t.className='toast show '+type; clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),3800); }
