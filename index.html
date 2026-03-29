@@ -604,8 +604,6 @@ textarea{resize:none;min-height:70px;line-height:1.5}
   <div class="stats-grid">
     <div class="stat-card"><div class="stat-lbl">รายการ</div><div class="stat-val" id="dStatCount">0</div><div class="stat-unit">รายการ</div></div>
     <div class="stat-card"><div class="stat-lbl">น้ำมันรวม</div><div class="stat-val" id="dStatLiters">0</div><div class="stat-unit">ลิตร</div></div>
-    <div class="stat-card"><div class="stat-lbl">ค่าน้ำมัน</div><div class="stat-val" id="dStatCost">0</div><div class="stat-unit">บาท</div></div>
-    <div class="stat-card"><div class="stat-lbl" style="color:var(--red)">เกินเรท</div><div class="stat-val" style="color:var(--red)" id="dStatOver">0</div><div class="stat-unit">รายการ</div></div>
   </div>
 
   <!-- Bar chart by machine -->
@@ -901,7 +899,8 @@ textarea{resize:none;min-height:70px;line-height:1.5}
       <p>iPhone: Safari → Share → Add to Home Screen<br>Android: Chrome → ⋮ → Add to Home Screen</p>
     </div>
   </div>
-</div><!-- end setup -->
+
+</div><!-- end panel-setup -->
 
 </main>
 
@@ -1214,7 +1213,7 @@ function renderCart() {
 function showBatchPreview() {
   if (cart.length===0) { toast('⚠️ ยังไม่มีรายการ','warn'); return; }
   const now=new Date();
-  document.getElementById('lpcTime').textContent=`${now.getDate()}/${now.getMonth()+1}/${now.getFullYear()-543}  ${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')} น.`;
+  document.getElementById('lpcTime').textContent=`${now.getDate()}/${now.getMonth()+1}/${now.getFullYear()+543}  ${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')} น.`;
   document.getElementById('lpcTotalBadge').textContent=cart.length+' รายการ';
 
   // ── ซ่อน photo grid เดิม (รูปจะอยู่ในตารางแทน)
@@ -1538,9 +1537,6 @@ function renderDash() {
   document.getElementById('dStatCount').textContent = monthRecs.length;
   const totalL = monthRecs.reduce((s,r)=>s+(parseFloat(r.actualLiters)||0), 0);
   document.getElementById('dStatLiters').textContent = totalL.toFixed(0);
-  const totalC = monthRecs.reduce((s,r)=>s+(parseFloat(r.totalCost)||0), 0);
-  document.getElementById('dStatCost').textContent = totalC > 0 ? (totalC/1000).toFixed(1)+'K' : '0';
-  document.getElementById('dStatOver').textContent = monthRecs.filter(r=>r.rateStatus==='เกินเรท').length;
 
   // ── Bar chart: group by machine type, sub-rows by plate ──
   const byMachine = {};
@@ -1619,12 +1615,21 @@ function renderDash() {
         </div>
         <div class="hi-detail">
           📅 ${fmtD(r.fuelDate)} · 👤 ${r.driverName}${r.project?' · '+r.project:''}
-          ${r.distOrHr?' · '+r.distOrHr:''}
+          ${r.distOrHr?' · ⏱ '+r.distOrHr:''}
         </div>
+        ${(r.meterStart||r.meterEnd)?`<div style="font-size:11px;font-family:var(--mono);color:var(--gray-400);margin-top:3px">${r.machineUnit==='hr'?'ชม.':'ไมล์'}: <strong style="color:var(--navy)">${r.meterStart||'—'}</strong> → <strong style="color:var(--navy)">${r.meterEnd||'—'}</strong></div>`:''}
         ${r.consumeRate?`<div class="hi-rate ${isOver?'warn':'ok'}">${isOver?'⚠️':'✅'} ${r.consumeRate}</div>`:''}
       </div>
     </div>`;
   }).join('');
+}
+
+function changeMonth(dir) {
+  if (dashYear===undefined) { const n=new Date(); dashYear=n.getFullYear(); dashMonthIdx=n.getMonth(); }
+  dashMonthIdx += dir;
+  if (dashMonthIdx > 11) { dashMonthIdx = 0; dashYear++; }
+  if (dashMonthIdx < 0)  { dashMonthIdx = 11; dashYear--; }
+  renderDash();
 }
 
 function toggleSub(id) {
@@ -1851,7 +1856,7 @@ function miImg(type,size=32){
   const emo={'แม็คโคร':'🚜','แทรกเตอร์':'🚜','เทรนเลอร์':'🚛','สิบล้อ':'🚚','กระบะ':'🛻','มอเตอร์ไซค์':'🏍️','เครน':'🏗️','เครื่องปั่นไฟ':'🔋','รถน้ำ':'🚒','รถบด':'🛞'};
   return `<span style="font-size:${size}px;line-height:1">${emo[type]||'🚗'}</span>`;
 }
-function fmtD(d){ if(!d)return''; const p=d.split('-'); return `${p[2]}/${p[1]}/${parseInt(p[0])-543}`; }
+function fmtD(d){ if(!d)return''; const p=d.split('-'); return `${p[2]}/${p[1]}/${parseInt(p[0])+543}`; }
 function setTomorrow(){ const t=new Date(); t.setDate(t.getDate()+1); document.getElementById('reqFuelDate').value=t.toISOString().split('T')[0]; }
 
 function clearItemForm() {
