@@ -179,7 +179,7 @@ textarea{resize:none;min-height:70px;line-height:1.5}
 /* ── RECORD TAB ── */
 .rec-card{background:#fff;border:1px solid var(--gray-200);border-radius:var(--r);padding:13px 15px;margin-bottom:10px;position:relative;overflow:hidden}
 .rec-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gray-200)}
-.rec-card.pending::before{background:var(--orange)}
+.rec-card.recorded::before{background:var(--green)}
 .rec-card.recorded::before{background:var(--green)}
 .rec-hd{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px}
 .rec-machine{font-weight:700;font-size:14px}
@@ -329,7 +329,19 @@ textarea{resize:none;min-height:70px;line-height:1.5}
 .stk-detail{font-size:12px;color:var(--gray-600);margin-top:3px;line-height:1.6}
 .stk-bal{font-size:11px;color:var(--gray-400);margin-top:3px;font-family:var(--mono)}
 
-/* ── SUMMARY TABLE (preview card) ── */
+/* ── DAY GROUP (history) ── */
+.day-group{margin-bottom:16px}
+.day-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;background:var(--navy);border-radius:var(--r) var(--r) 0 0;padding:10px 14px}
+.day-date{font-size:14px;font-weight:700;color:#fff}
+.day-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.day-total{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent)}
+.day-count{font-size:11px;color:rgba(255,255,255,.55);background:rgba(255,255,255,.1);padding:2px 8px;border-radius:10px}
+.day-over{font-size:11px;font-weight:700;color:#ff8c69;background:rgba(214,48,49,.2);padding:2px 8px;border-radius:10px}
+.day-items{border:1px solid var(--gray-200);border-top:none;border-radius:0 0 var(--r) var(--r);overflow:hidden;background:#fff}
+.day-items .hist-item{border-radius:0;border-left:none;border-right:none;border-top:none;margin-bottom:0}
+.day-items .hist-item:last-child{border-bottom:none}
+.hi-meter{font-size:11px;font-family:var(--mono);color:var(--gray-400);margin-top:3px}
+.hi-meter strong{color:var(--navy)}
 .sum-table{width:100%;border-collapse:collapse;font-size:12px}
 .sum-table th{background:var(--navy-mid);color:rgba(255,255,255,.7);padding:7px 8px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
 .sum-table td{padding:7px 8px;border-bottom:1px solid var(--gray-100);vertical-align:middle}
@@ -1386,29 +1398,73 @@ function fileToBase64(file) {
 
 // ═══ RECORD LIST ═══
 function renderRecordList() {
-  const list=document.getElementById('recordList');
-  const items=pending.filter(p=>p.status==='pending');
-  if (items.length===0) {
-    list.innerHTML='<div class="empty"><div class="ei">✅</div><div class="et">ไม่มีรายการรอบันทึก</div><div class="es">ขอเบิกจากแท็บ "ขอเบิก" ก่อน</div></div>';
+  const list = document.getElementById('recordList');
+  const allItems = [...pending].reverse();
+  if (allItems.length === 0) {
+    list.innerHTML = '<div class="empty"><div class="ei">✅</div><div class="et">ไม่มีรายการ</div><div class="es">ขอเบิกจากแท็บ "ขอเบิก" ก่อน</div></div>';
     return;
   }
-  list.innerHTML=items.map((item)=>{
-    const origIdx=pending.indexOf(item);
-    return `<div class="rec-card pending">
-      <div class="rec-hd">
-        <div class="rec-machine" style="display:flex;align-items:center;gap:8px">${miImg(item.machineType,26)} <span>${item.machineType} · ${item.plateNo}</span></div>
-        <span class="spill pending">⏳ รอบันทึก</span>
+
+  // จัดกลุ่มตามวันที่เติม
+  const byDay = {};
+  allItems.forEach(item => {
+    const day = item.fuelDate || '—';
+    if (!byDay[day]) byDay[day] = [];
+    byDay[day].push(item);
+  });
+  const sortedDays = Object.keys(byDay).sort((a,b) => b.localeCompare(a));
+
+  list.innerHTML = sortedDays.map(day => {
+    const dayItems  = byDay[day];
+    const dayTotal  = dayItems.reduce((s,i) => s + (parseFloat(i.liters)||0), 0);
+    const pendingCt = dayItems.filter(i => i.status !== 'recorded').length;
+    const doneCt    = dayItems.filter(i => i.status === 'recorded').length;
+
+    const cards = dayItems.map(item => {
+      const origIdx = pending.indexOf(item);
+      const isDone  = item.status === 'recorded';
+      const isOver  = item.rateStatus === 'เกินเรท';
+      const meterLine = (item.meterStart || item.meterEnd)
+        ? `<br>📏 ${item.machineUnit==='hr'?'ชม.':'ไมล์'}: <strong>${item.meterStart||'—'}</strong> → <strong>${item.meterEnd||'—'}</strong>${item.distOrHr?' ('+item.distOrHr+')':''}`
+        : '';
+      const rateLine = item.consumeRate
+        ? `<br><span style="color:${isOver?'var(--red)':'var(--green-mid)'};font-weight:700">${isOver?'⚠️':'✅'} ${item.consumeRate}${isOver?' — เกินเรท':''}</span>`
+        : '';
+      return `<div class="rec-card ${isDone?'recorded':'pending'}" style="border-radius:0;border-left:none;border-right:none;border-top:none;margin-bottom:0;border-bottom:1px solid var(--gray-100)">
+        <div class="rec-hd">
+          <div class="rec-machine" style="display:flex;align-items:center;gap:8px">
+            ${miImg(item.machineType,24)} <span>${item.machineType} · ${item.plateNo}</span>
+          </div>
+          <span class="spill ${isDone?'recorded':'pending'}">${isDone?'✅ บันทึกแล้ว':'⏳ รอบันทึก'}</span>
+        </div>
+        <div class="rec-detail">
+          ⛽ <strong>${item.liters} ล.</strong> &nbsp;👤 ${item.driverName}${item.project?' · '+item.project:''}
+          ${meterLine}${rateLine}
+        </div>
+        ${isDone
+          ? `<div style="margin-top:7px;font-size:12px;color:var(--green-mid);display:flex;align-items:center;gap:5px">
+              ✅ บันทึกแล้วเมื่อ ${item.recordedAt ? fmtDT(item.recordedAt) : '—'}
+              <button onclick="deletePending(${origIdx})" style="margin-left:auto;background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:13px">🗑️</button>
+             </div>`
+          : `<div style="display:flex;gap:8px;margin-top:8px">
+              <button class="rec-btn" style="flex:3" onclick="openFillModal(${origIdx})">⛽ บันทึกการเติมจริง</button>
+              <button class="rec-btn-del" onclick="deletePending(${origIdx})">🗑️ ลบ</button>
+             </div>`
+        }
+      </div>`;
+    }).join('');
+
+    return `<div class="day-group">
+      <div class="day-header">
+        <div class="day-date">📅 ${fmtD(day)}</div>
+        <div class="day-summary">
+          <span class="day-total">${dayTotal.toFixed(0)} ล.</span>
+          <span class="day-count">${dayItems.length} รายการ</span>
+          ${pendingCt > 0 ? `<span class="day-over" style="color:#ff8c69;background:rgba(230,126,34,.2)">⏳ ${pendingCt} รอบันทึก</span>` : ''}
+          ${doneCt > 0 && pendingCt === 0 ? `<span class="day-count" style="color:#6fcf97;background:rgba(26,158,92,.15)">✅ ครบแล้ว</span>` : ''}
+        </div>
       </div>
-      <div class="rec-detail">
-        📅 วันที่: <strong>${fmtD(item.fuelDate)}</strong>  ⛽ ขอ <strong>${item.liters} ล.</strong><br>
-        👤 ${item.driverName}${item.project?' · '+item.project:''}
-        ${item.distOrHr?'<br>📏 ระยะ: '+item.distOrHr+(item.consumeRate?' · อัตรา: '+item.consumeRate:''):''}
-        ${item.rateStatus==='เกินเรท'?'<br><span style="color:var(--red);font-weight:700">⚠️ เกินเรทมาตรฐาน</span>':''}
-      </div>
-      <div style="display:flex;gap:8px;margin-top:9px">
-        <button class="rec-btn" style="flex:3" onclick="openFillModal(${origIdx})">⛽ บันทึกการเติมจริง</button>
-        <button class="rec-btn-del" onclick="deletePending(${origIdx})">🗑️ ลบ</button>
-      </div>
+      <div class="day-items">${cards}</div>
     </div>`;
   }).join('');
 }
@@ -1493,8 +1549,13 @@ async function confirmFill() {
 
   records.unshift(rec);
   saveRecords();
+
+  // เปลี่ยน status เป็น recorded แทนการลบ
   const pidx = pending.indexOf(curFillItem);
-  if (pidx > -1) pending.splice(pidx, 1);
+  if (pidx > -1) {
+    pending[pidx].status      = 'recorded';
+    pending[pidx].recordedAt  = rec.recordedAt;
+  }
   savePending();
 
   // Auto stock-out entry
@@ -1599,26 +1660,56 @@ function renderDash() {
     hist.innerHTML = '<div class="empty"><div class="ei">📋</div><div class="et">ยังไม่มีข้อมูล</div></div>';
     return;
   }
-  hist.innerHTML = monthRecs.slice(0,20).map(r => {
-    const isOver = r.rateStatus === 'เกินเรท';
-    const origIdx = records.indexOf(r);
-    return `<div class="hist-item">
-      <div class="hi-icon">${miImg(r.machineType,36)}</div>
-      <div class="hi-body">
-        <div class="hi-top">
-          <div class="hi-machine">${r.machineType} · ${r.plateNo}</div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <div class="hi-liters">${r.actualLiters} ล.</div>
-            <button onclick="deleteRecord(${origIdx})" style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:0" title="ลบ">🗑️</button>
+
+  // จัดกลุ่มตามวัน
+  const byDay = {};
+  monthRecs.forEach(r => {
+    const day = r.fuelDate || r.recordedAt?.split('T')[0] || '—';
+    if (!byDay[day]) byDay[day] = [];
+    byDay[day].push(r);
+  });
+
+  // เรียงวันจากใหม่→เก่า
+  const sortedDays = Object.keys(byDay).sort((a,b) => b.localeCompare(a));
+
+  hist.innerHTML = sortedDays.map(day => {
+    const dayRecs = byDay[day];
+    const dayTotal = dayRecs.reduce((s,r) => s + (parseFloat(r.actualLiters)||0), 0);
+    const dayOver  = dayRecs.filter(r => r.rateStatus === 'เกินเรท').length;
+
+    const items = dayRecs.map(r => {
+      const isOver   = r.rateStatus === 'เกินเรท';
+      const origIdx  = records.indexOf(r);
+      const meterStr = (r.meterStart||r.meterEnd)
+        ? `<div class="hi-meter">${r.machineUnit==='hr'?'ชม.':'ไมล์'}: <strong>${r.meterStart||'—'}</strong> → <strong>${r.meterEnd||'—'}</strong>${r.distOrHr?' · '+r.distOrHr:''}</div>`
+        : '';
+      return `<div class="hist-item">
+        <div class="hi-icon">${miImg(r.machineType,34)}</div>
+        <div class="hi-body">
+          <div class="hi-top">
+            <div class="hi-machine">${r.machineType} · ${r.plateNo}</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="hi-liters">${r.actualLiters} ล.</div>
+              <button onclick="deleteRecord(${origIdx})" style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:13px;padding:0" title="ลบ">🗑️</button>
+            </div>
           </div>
+          <div class="hi-detail">👤 ${r.driverName}${r.project?' · '+r.project:''}${r.distOrHr?' · ⏱ '+r.distOrHr:''}</div>
+          ${meterStr}
+          ${r.consumeRate?`<div class="hi-rate ${isOver?'warn':'ok'}">${isOver?'⚠️':'✅'} ${r.consumeRate}</div>`:''}
         </div>
-        <div class="hi-detail">
-          📅 ${fmtD(r.fuelDate)} · 👤 ${r.driverName}${r.project?' · '+r.project:''}
-          ${r.distOrHr?' · ⏱ '+r.distOrHr:''}
+      </div>`;
+    }).join('');
+
+    return `<div class="day-group">
+      <div class="day-header">
+        <div class="day-date">📅 ${fmtD(day)}</div>
+        <div class="day-summary">
+          <span class="day-total">${dayTotal.toFixed(0)} ล.</span>
+          <span class="day-count">${dayRecs.length} รายการ</span>
+          ${dayOver > 0 ? `<span class="day-over">⚠️ ${dayOver} เกินเรท</span>` : ''}
         </div>
-        ${(r.meterStart||r.meterEnd)?`<div style="font-size:11px;font-family:var(--mono);color:var(--gray-400);margin-top:3px">${r.machineUnit==='hr'?'ชม.':'ไมล์'}: <strong style="color:var(--navy)">${r.meterStart||'—'}</strong> → <strong style="color:var(--navy)">${r.meterEnd||'—'}</strong></div>`:''}
-        ${r.consumeRate?`<div class="hi-rate ${isOver?'warn':'ok'}">${isOver?'⚠️':'✅'} ${r.consumeRate}</div>`:''}
       </div>
+      <div class="day-items">${items}</div>
     </div>`;
   }).join('');
 }
@@ -1641,12 +1732,13 @@ function toggleSub(id) {
 function deletePending(idx) {
   const item = pending[idx];
   if (!item) return;
-  if (!confirm(`ลบรายการ "${item.machineType} ${item.plateNo}" ออก?`)) return;
+  const label = item.status === 'recorded' ? 'รายการที่บันทึกแล้ว' : 'รายการรอบันทึก';
+  if (!confirm(`ลบ${label} "${item.machineType} ${item.plateNo}" ออก?`)) return;
   pending.splice(idx, 1);
   savePending();
   pushCloud();
   renderRecordList();
-  toast('🗑️ ลบรายการรอบันทึกแล้ว', '');
+  toast('🗑️ ลบรายการแล้ว', '');
 }
 
 function deleteRecord(idx) {
@@ -1734,7 +1826,7 @@ function stockFilter(mode) {
 
 function renderStockLog() {
   const log = document.getElementById('stockLog');
-  let items = [...stockLedger].reverse(); // newest first
+  let items = [...stockLedger].reverse();
   if (stockFilterMode === 'in')  items = items.filter(t => t.type === 'in');
   if (stockFilterMode === 'out') items = items.filter(t => t.type === 'out');
 
@@ -1743,33 +1835,61 @@ function renderStockLog() {
     return;
   }
 
-  // Rebuild running balance for display
   const balMap = buildBalanceMap();
 
-  log.innerHTML = items.map(tx => {
-    const isIn = tx.type === 'in';
-    const bal  = balMap[tx.ts] !== undefined ? balMap[tx.ts].toFixed(0) : '—';
-    const origIdx = stockLedger.indexOf(tx);
-    return `<div class="stk-item">
-      <div class="stk-dot ${isIn?'in':'out'}">${isIn ? '📥' : '📤'}</div>
-      <div class="stk-body">
-        <div class="stk-top">
-          <div class="stk-title">${isIn ? 'รับน้ำมันเข้า' : tx.ref || 'จ่ายออก'}</div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <div class="stk-amount ${isIn?'in':'out'}">${isIn?'+':'-'}${parseFloat(tx.liters).toFixed(0)} ล.</div>
-            <button onclick="deleteStockEntry(${origIdx})" style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:0 2px" title="ลบ">🗑️</button>
+  // จัดกลุ่มตามวัน
+  const byDay = {};
+  items.forEach(tx => {
+    const day = tx.date || '—';
+    if (!byDay[day]) byDay[day] = [];
+    byDay[day].push(tx);
+  });
+  const sortedDays = Object.keys(byDay).sort((a,b) => b.localeCompare(a));
+
+  log.innerHTML = sortedDays.map(day => {
+    const dayTxs  = byDay[day];
+    const inTotal  = dayTxs.filter(t=>t.type==='in').reduce((s,t)=>s+(parseFloat(t.liters)||0),0);
+    const outTotal = dayTxs.filter(t=>t.type==='out').reduce((s,t)=>s+(parseFloat(t.liters)||0),0);
+    // ยอดคงเหลือ ณ สิ้นวัน = ยอดของ tx สุดท้ายในวัน
+    const lastTx  = dayTxs[dayTxs.length - 1];
+    const dayBal  = balMap[lastTx.ts] !== undefined ? balMap[lastTx.ts].toFixed(0) : '—';
+
+    const txCards = dayTxs.map(tx => {
+      const isIn    = tx.type === 'in';
+      const bal     = balMap[tx.ts] !== undefined ? balMap[tx.ts].toFixed(0) : '—';
+      const origIdx = stockLedger.indexOf(tx);
+      return `<div class="stk-item" style="padding:10px 14px">
+        <div class="stk-dot ${isIn?'in':'out'}">${isIn ? '📥' : '📤'}</div>
+        <div class="stk-body">
+          <div class="stk-top">
+            <div class="stk-title">${isIn ? 'รับน้ำมันเข้า' : tx.ref || 'จ่ายออก'}</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="stk-amount ${isIn?'in':'out'}">${isIn?'+':'-'}${parseFloat(tx.liters).toFixed(0)} ล.</div>
+              <button onclick="deleteStockEntry(${origIdx})" style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:13px;padding:0" title="ลบ">🗑️</button>
+            </div>
           </div>
+          <div class="stk-detail">
+            ${tx.supplier ? '🚚 '+tx.supplier : ''}
+            ${tx.ref && isIn ? ' · เลขที่: '+tx.ref : ''}
+            ${tx.recorder ? ' · 👤 '+tx.recorder : ''}
+            ${tx.note ? '<br>📝 '+tx.note : ''}
+            ${tx.priceTotal&&parseFloat(tx.priceTotal)>0 ? ' · 💰 '+parseFloat(tx.priceTotal).toLocaleString('th-TH')+'฿' : ''}
+          </div>
+          <div class="stk-bal">คงเหลือ: ${bal} ล.</div>
         </div>
-        <div class="stk-detail">
-          📅 ${fmtD(tx.date)}
-          ${tx.supplier ? ' · 🚚 '+tx.supplier : ''}
-          ${tx.ref && isIn ? ' · เลขที่: '+tx.ref : ''}
-          ${tx.recorder ? ' · 👤 '+tx.recorder : ''}
-          ${tx.note ? '<br>📝 '+tx.note : ''}
-          ${tx.priceTotal&&parseFloat(tx.priceTotal)>0 ? ' · 💰 '+parseFloat(tx.priceTotal).toLocaleString('th-TH')+'฿' : ''}
+      </div>`;
+    }).join('');
+
+    return `<div class="day-group">
+      <div class="day-header">
+        <div class="day-date">📅 ${fmtD(day)}</div>
+        <div class="day-summary">
+          ${inTotal  > 0 ? `<span class="day-count" style="color:#6fcf97;background:rgba(26,158,92,.2)">📥 +${inTotal.toFixed(0)} ล.</span>`  : ''}
+          ${outTotal > 0 ? `<span class="day-count" style="color:#ff8c69;background:rgba(230,126,34,.15)">📤 -${outTotal.toFixed(0)} ล.</span>` : ''}
+          <span class="day-count">คงเหลือ ${dayBal} ล.</span>
         </div>
-        <div class="stk-bal">คงเหลือ: ${bal} ล.</div>
       </div>
+      <div class="day-items">${txCards}</div>
     </div>`;
   }).join('');
 }
@@ -1856,6 +1976,7 @@ function miImg(type,size=32){
   return `<span style="font-size:${size}px;line-height:1">${emo[type]||'🚗'}</span>`;
 }
 function fmtD(d){ if(!d)return''; const p=d.split('-'); return `${p[2]}/${p[1]}/${parseInt(p[0])+543}`; }
+function fmtDT(iso){ if(!iso)return''; const d=new Date(iso); return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} น.`; }
 function setTomorrow(){ const t=new Date(); t.setDate(t.getDate()+1); document.getElementById('reqFuelDate').value=t.toISOString().split('T')[0]; }
 
 function clearItemForm() {
